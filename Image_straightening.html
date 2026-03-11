@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>圖片透視校正與反光去除工具</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: #f3f4f6;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+        #canvas-container {
+            position: relative;
+            display: inline-block;
+            touch-action: none;
+            user-select: none;
+            line-height: 0;
+        }
+        canvas {
+            max-width: 100%;
+            height: auto;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+            display: block;
+        }
+        .handle {
+            position: absolute;
+            width: 40px;
+            height: 40px;
+            background-color: rgba(59, 130, 246, 0.1);
+            border: 1.5px solid #3b82f6;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            cursor: move;
+            z-index: 50;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            pointer-events: auto;
+            transition: border-color 0.2s;
+        }
+        .handle::before {
+            content: "";
+            position: absolute;
+            width: 100%;
+            height: 1px;
+            background-color: #3b82f6;
+            opacity: 0.8;
+        }
+        .handle::after {
+            content: "";
+            position: absolute;
+            width: 1px;
+            height: 100%;
+            background-color: #3b82f6;
+            opacity: 0.8;
+        }
+        .handle-label {
+            position: absolute;
+            top: -15px;
+            right: -15px;
+            background: #3b82f6;
+            color: white;
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 10px;
+            font-weight: bold;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            pointer-events: none;
+        }
+        .handle:hover {
+            border-color: #1d4ed8;
+            background-color: rgba(59, 130, 246, 0.2);
+        }
+        .drop-zone {
+            border: 2px dashed #cbd5e1;
+            transition: all 0.3s ease;
+        }
+        .drop-zone.drag-over {
+            border-color: #3b82f6;
+            background-color: #eff6ff;
+        }
+        input[type=range] {
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+    <div class="max-w-6xl mx-auto">
+        <header class="mb-8 text-center">
+            <h1 class="text-3xl font-bold text-gray-800">圖片校正與影像優化</h1>
+            <p class="text-gray-600 mt-2">支援透視轉正、反光抑制與清晰化增強</p>
+        </header>
+
+        <!-- 上傳區塊 -->
+        <div id="upload-section" class="mb-8">
+            <label for="file-input" class="drop-zone block w-full p-12 text-center cursor-pointer rounded-xl bg-white shadow-sm">
+                <div class="flex flex-col items-center">
+                    <svg class="w-12 h-12 text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                    </svg>
+                    <span class="text-lg font-medium text-gray-700">點擊或拖拽圖片至此處上傳</span>
+                </div>
+                <input type="file" id="file-input" class="hidden" accept="image/*">
+            </label>
+        </div>
+
+        <div id="editor-section" class="hidden flex flex-col xl:flex-row gap-8 items-start">
+            <!-- 步驟 1：編輯區 -->
+            <div class="flex-1 bg-white p-6 rounded-xl shadow-md w-full overflow-hidden border border-gray-100">
+                <h2 class="text-lg font-semibold mb-4 text-gray-700 flex justify-between items-center">
+                    1. 標記四個角落
+                    <button id="reset-points" class="text-sm font-normal text-blue-600 hover:text-blue-800 transition">重置點位</button>
+                </h2>
+                <div class="flex justify-center bg-gray-50 rounded-lg p-4 mb-4 border border-gray-200">
+                    <div id="canvas-container">
+                        <canvas id="source-canvas"></canvas>
+                        <div id="h0" class="handle" data-index="0"><span class="handle-label">1</span></div>
+                        <div id="h1" class="handle" data-index="1"><span class="handle-label">2</span></div>
+                        <div id="h2" class="handle" data-index="2"><span class="handle-label">3</span></div>
+                        <div id="h3" class="handle" data-index="3"><span class="handle-label">4</span></div>
+                    </div>
+                </div>
+                <button id="transform-btn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 px-6 rounded-lg shadow-lg transition transform active:scale-95">
+                    執行透視校正轉換
+                </button>
+            </div>
+
+            <!-- 步驟 2：結果區 -->
+            <div class="flex-1 bg-white p-6 rounded-xl shadow-md w-full border border-gray-100">
+                <h2 class="text-lg font-semibold mb-4 text-gray-700">2. 校正結果與影像增強</h2>
+                
+                <!-- 清晰化與反光控制面板 -->
+                <div id="enhancement-panel" class="hidden mb-6 p-4 bg-blue-50 rounded-lg border border-blue-100 space-y-5">
+                    <div class="flex flex-col gap-1">
+                        <div class="flex justify-between items-center text-sm font-medium text-blue-800">
+                            <span class="flex items-center gap-1">
+                                <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M11 3a1 1 0 10-2 0v1a1 1 0 102 0V3zM15.657 5.757a1 1 0 00-1.414-1.414l-.707.707a1 1 0 001.414 1.414l.707-.707zM18 10a1 1 0 01-1 1h-1a1 1 0 110-2h1a1 1 0 011 1zM5.05 6.464A1 1 0 106.464 5.05l-.707-.707a1 1 0 00-1.414 1.414l.707.707zM5 10a1 1 0 01-1 1H3a1 1 0 110-2h1a1 1 0 011 1zM8 16v-1a1 1 0 112 0v1a1 1 0 11-2 0zM13.536 14.95a1 1 0 011.414-1.414l.707.707a1 1 0 01-1.414 1.414l-.707-.707zM16 10a1 1 0 01-1 1h-1a1 1 0 110-2h1a1 1 0 011 1z"></path></svg>
+                                反光抑制
+                            </span>
+                            <span id="glare-val">0</span>
+                        </div>
+                        <input type="range" id="glare-range" min="0" max="100" value="0" class="w-full h-2 bg-blue-200 rounded-lg appearance-none">
+                    </div>
+                    <div class="flex flex-col gap-1">
+                        <div class="flex justify-between items-center text-sm font-medium text-blue-800">
+                            <span>清晰度 (銳化)</span>
+                            <span id="sharp-val">0</span>
+                        </div>
+                        <input type="range" id="sharp-range" min="0" max="100" value="0" class="w-full h-2 bg-blue-200 rounded-lg appearance-none">
+                    </div>
+                    <div class="flex flex-col gap-1">
+                        <div class="flex justify-between items-center text-sm font-medium text-blue-800">
+                            <span>對比度</span>
+                            <span id="contrast-val">1.0</span>
+                        </div>
+                        <input type="range" id="contrast-range" min="0.5" max="2.5" step="0.1" value="1.0" class="w-full h-2 bg-blue-200 rounded-lg appearance-none">
+                    </div>
+                </div>
+
+                <div class="flex flex-col items-center justify-center min-h-[300px] bg-gray-50 rounded-lg border border-gray-100 p-4">
+                    <canvas id="dest-canvas" class="max-w-full"></canvas>
+                    <div id="result-placeholder" class="text-gray-400 text-sm">尚未執行轉換</div>
+                    <div id="result-actions" class="hidden mt-6 w-full space-y-3">
+                        <button id="download-btn" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg transition shadow-md">
+                            下載最終圖片
+                        </button>
+                        <button id="new-upload-btn" class="w-full text-gray-500 hover:text-gray-700 text-sm font-medium">
+                            重新上傳
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="message-box" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-gray-900 text-white px-6 py-3 rounded-full shadow-2xl opacity-0 translate-y-10 transition-all duration-300 pointer-events-none z-[100]">
+            <p id="message-text"></p>
+        </div>
+    </div>
+
+    <script>
+        const fileInput = document.getElementById('file-input');
+        const uploadSection = document.getElementById('upload-section');
+        const editorSection = document.getElementById('editor-section');
+        const sourceCanvas = document.getElementById('source-canvas');
+        const destCanvas = document.getElementById('dest-canvas');
+        const sCtx = sourceCanvas.getContext('2d');
+        const dCtx = destCanvas.getContext('2d');
+        const handles = [
+            document.getElementById('h0'), document.getElementById('h1'),
+            document.getElementById('h2'), document.getElementById('h3')
+        ];
+        const msgBox = document.getElementById('message-box');
+        const msgText = document.getElementById('message-text');
+
+        const enhancementPanel = document.getElementById('enhancement-panel');
+        const sharpRange = document.getElementById('sharp-range');
+        const contrastRange = document.getElementById('contrast-range');
+        const glareRange = document.getElementById('glare-range');
+        const sharpValDisplay = document.getElementById('sharp-val');
+        const contrastValDisplay = document.getElementById('contrast-val');
+        const glareValDisplay = document.getElementById('glare-val');
+
+        let originalImg = new Image();
+        let points = []; 
+        let scale = 1; 
+        let isDragging = false;
+        let activeHandle = null;
+        let rawRectifiedData = null;
+
+        fileInput.addEventListener('change', handleFileSelect);
+        
+        ['dragover', 'dragleave', 'drop'].forEach(evt => {
+            document.body.addEventListener(evt, (e) => {
+                e.preventDefault();
+                if (evt === 'dragover') uploadSection.classList.add('drag-over');
+                if (evt === 'dragleave') uploadSection.classList.remove('drag-over');
+                if (evt === 'drop') {
+                    uploadSection.classList.remove('drag-over');
+                    if (e.dataTransfer.files.length) {
+                        fileInput.files = e.dataTransfer.files;
+                        handleFileSelect();
+                    }
+                }
+            });
+        });
+
+        function showMessage(text) {
+            msgText.innerText = text;
+            msgBox.classList.remove('opacity-0', 'translate-y-10');
+            setTimeout(() => msgBox.classList.add('opacity-0', 'translate-y-10'), 3000);
+        }
+
+        function handleFileSelect() {
+            const file = fileInput.files[0];
+            if (!file || !file.type.startsWith('image/')) return;
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                originalImg.onload = () => initEditor();
+                originalImg.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function initEditor() {
+            editorSection.classList.remove('hidden');
+            uploadSection.classList.add('hidden');
+            enhancementPanel.classList.add('hidden');
+            
+            sharpRange.value = 0;
+            contrastRange.value = 1.0;
+            glareRange.value = 0;
+
+            const container = document.querySelector('.flex-1');
+            const containerWidth = container.clientWidth - 80;
+            scale = Math.min(1, containerWidth / originalImg.width);
+            
+            sourceCanvas.width = originalImg.width * scale;
+            sourceCanvas.height = originalImg.height * scale;
+            
+            const w = sourceCanvas.width;
+            const h = sourceCanvas.height;
+            const pad = Math.min(w, h) * 0.15;
+
+            points = [
+                {x: pad, y: pad},
+                {x: w - pad, y: pad},
+                {x: w - pad, y: h - pad},
+                {x: pad, y: h - pad}
+            ];
+
+            updateCanvas();
+            document.getElementById('result-placeholder').classList.remove('hidden');
+            document.getElementById('result-actions').classList.add('hidden');
+            destCanvas.width = 0; 
+            rawRectifiedData = null;
+        }
+
+        function updateCanvas() {
+            sCtx.clearRect(0, 0, sourceCanvas.width, sourceCanvas.height);
+            sCtx.drawImage(originalImg, 0, 0, sourceCanvas.width, sourceCanvas.height);
+
+            sCtx.beginPath();
+            sCtx.moveTo(points[0].x, points[0].y);
+            for (let i = 1; i < 4; i++) sCtx.lineTo(points[i].x, points[i].y);
+            sCtx.closePath();
+            sCtx.strokeStyle = '#3b82f6';
+            sCtx.setLineDash([5, 5]);
+            sCtx.lineWidth = 1.5;
+            sCtx.stroke();
+            sCtx.setLineDash([]);
+            sCtx.fillStyle = 'rgba(59, 130, 246, 0.1)';
+            sCtx.fill();
+
+            points.forEach((p, i) => {
+                handles[i].style.left = `${p.x}px`;
+                handles[i].style.top = `${p.y}px`;
+            });
+        }
+
+        handles.forEach((handle, index) => {
+            const start = (e) => {
+                e.preventDefault();
+                isDragging = true;
+                activeHandle = index;
+                window.addEventListener('mousemove', move);
+                window.addEventListener('mouseup', end);
+                window.addEventListener('touchmove', move, {passive: false});
+                window.addEventListener('touchend', end);
+            };
+            handle.addEventListener('mousedown', start);
+            handle.addEventListener('touchstart', start, {passive: false});
+        });
+
+        function move(e) {
+            if (!isDragging) return;
+            const rect = sourceCanvas.getBoundingClientRect();
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            let x = clientX - rect.left;
+            let y = clientY - rect.top;
+            x = Math.max(0, Math.min(x, sourceCanvas.width));
+            y = Math.max(0, Math.min(y, sourceCanvas.height));
+            points[activeHandle] = { x, y };
+            updateCanvas();
+        }
+
+        function end() {
+            isDragging = false;
+            activeHandle = null;
+            window.removeEventListener('mousemove', move);
+            window.removeEventListener('mouseup', end);
+            window.removeEventListener('touchmove', move);
+            window.removeEventListener('touchend', end);
+        }
+
+        document.getElementById('reset-points').addEventListener('click', initEditor);
+
+        function solveLinearSystem(matrix) {
+            const n = matrix.length;
+            for (let i = 0; i < n; i++) {
+                let max = i;
+                for (let j = i + 1; j < n; j++) {
+                    if (Math.abs(matrix[j][i]) > Math.abs(matrix[max][i])) max = j;
+                }
+                [matrix[i], matrix[max]] = [matrix[max], matrix[i]];
+                if (Math.abs(matrix[i][i]) < 1e-10) return null;
+                for (let j = i + 1; j < n; j++) {
+                    const c = matrix[j][i] / matrix[i][i];
+                    for (let k = i; k <= n; k++) matrix[j][k] -= c * matrix[i][k];
+                }
+            }
+            const res = new Array(n);
+            for (let i = n - 1; i >= 0; i--) {
+                let sum = 0;
+                for (let j = i + 1; j < n; j++) sum += matrix[i][j] * res[j];
+                res[i] = (matrix[i][n] - sum) / matrix[i][i];
+            }
+            return res;
+        }
+
+        function getPerspectiveTransform(src, dst) {
+            const system = [];
+            for (let i = 0; i < 4; i++) {
+                system.push([src[i].x, src[i].y, 1, 0, 0, 0, -src[i].x * dst[i].x, -src[i].y * dst[i].x, dst[i].x]);
+                system.push([0, 0, 0, src[i].x, src[i].y, 1, -src[i].x * dst[i].y, -src[i].y * dst[i].y, dst[i].y]);
+            }
+            return solveLinearSystem(system);
+        }
+
+        document.getElementById('transform-btn').addEventListener('click', () => {
+            const w1 = Math.hypot(points[1].x - points[0].x, points[1].y - points[0].y);
+            const w2 = Math.hypot(points[2].x - points[3].x, points[2].y - points[3].y);
+            const h1 = Math.hypot(points[3].x - points[0].x, points[3].y - points[0].y);
+            const h2 = Math.hypot(points[2].x - points[1].x, points[2].y - points[1].y);
+            
+            const targetWidth = Math.max(w1, w2) / scale;
+            const targetHeight = Math.max(h1, h2) / scale;
+
+            destCanvas.width = targetWidth;
+            destCanvas.height = targetHeight;
+
+            const srcPoints = points.map(p => ({ x: p.x / scale, y: p.y / scale }));
+            const dstPoints = [{x:0,y:0}, {x:targetWidth,y:0}, {x:targetWidth,y:targetHeight}, {x:0,y:targetHeight}];
+
+            const matrix = getPerspectiveTransform(dstPoints, srcPoints);
+            if (!matrix) return showMessage("點位無效");
+
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = originalImg.width;
+            tempCanvas.height = originalImg.height;
+            const tCtx = tempCanvas.getContext('2d');
+            tCtx.drawImage(originalImg, 0, 0);
+            const srcImgData = tCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+            
+            const destImgData = dCtx.createImageData(targetWidth, targetHeight);
+            const sD = srcImgData.data;
+            const dD = destImgData.data;
+            const sW = srcImgData.width;
+            const sH = srcImgData.height;
+            const m = [...matrix, 1];
+
+            for (let v = 0; v < targetHeight; v++) {
+                for (let u = 0; u < targetWidth; u++) {
+                    const den = m[6] * u + m[7] * v + m[8];
+                    const sx = (m[0] * u + m[1] * v + m[2]) / den;
+                    const sy = (m[3] * u + m[4] * v + m[5]) / den;
+                    const dIdx = (v * Math.floor(targetWidth) + u) * 4;
+
+                    if (sx >= 0 && sx < sW - 1 && sy >= 0 && sy < sH - 1) {
+                        const ix = Math.floor(sx), iy = Math.floor(sy);
+                        const dx = sx - ix, dy = sy - iy;
+                        for (let i = 0; i < 4; i++) {
+                            const p00 = sD[(iy * sW + ix) * 4 + i];
+                            const p10 = sD[(iy * sW + (ix + 1)) * 4 + i];
+                            const p01 = sD[((iy + 1) * sW + ix) * 4 + i];
+                            const p11 = sD[((iy + 1) * sW + (ix + 1)) * 4 + i];
+                            dD[dIdx + i] = (1-dx)*(1-dy)*p00 + dx*(1-dy)*p10 + (1-dx)*dy*p01 + dx*dy*p11;
+                        }
+                    }
+                }
+            }
+
+            rawRectifiedData = destImgData; 
+            dCtx.putImageData(destImgData, 0, 0);
+            
+            document.getElementById('result-placeholder').classList.add('hidden');
+            document.getElementById('result-actions').classList.remove('hidden');
+            enhancementPanel.classList.remove('hidden');
+            showMessage("轉換成功！");
+        });
+
+        // --- 影像增強處理 ---
+
+        function processImage() {
+            if (!rawRectifiedData) return;
+            
+            const sharpness = parseFloat(sharpRange.value) / 100;
+            const contrast = parseFloat(contrastRange.value);
+            const glare = parseFloat(glareRange.value) / 100;
+            
+            sharpValDisplay.innerText = Math.round(sharpness * 100);
+            contrastValDisplay.innerText = contrast.toFixed(1);
+            glareValDisplay.innerText = Math.round(glare * 100);
+
+            const workingData = new ImageData(
+                new Uint8ClampedArray(rawRectifiedData.data),
+                rawRectifiedData.width,
+                rawRectifiedData.height
+            );
+
+            // 1. 反光抑制處理 (Highlight Suppression)
+            if (glare > 0) {
+                applyGlareReduction(workingData, glare);
+            }
+
+            // 2. 銳化處理
+            if (sharpness > 0) {
+                applySharpen(workingData, sharpness);
+            }
+
+            // 3. 對比度處理
+            if (contrast !== 1.0) {
+                applyContrast(workingData, contrast);
+            }
+
+            dCtx.putImageData(workingData, 0, 0);
+        }
+
+        // 反光抑制：偵測高光並動態調降亮度
+        function applyGlareReduction(imageData, amount) {
+            const data = imageData.data;
+            // 門檻：亮度超過 180 開始作用 (0-255)
+            const threshold = 180; 
+            for (let i = 0; i < data.length; i += 4) {
+                const r = data[i], g = data[i+1], b = data[i+2];
+                // 使用感知亮度公式
+                const luma = 0.299 * r + 0.587 * g + 0.114 * b;
+                
+                if (luma > threshold) {
+                    // 計算高出門檻的比例 (0 to 1)
+                    const diff = (luma - threshold) / (255 - threshold);
+                    // 根據拉桿強度 (amount) 計算減少因子 (非線性)
+                    const reduction = 1 - (diff * amount * 0.5);
+                    
+                    data[i]     *= reduction;
+                    data[i + 1] *= reduction;
+                    data[i + 2] *= reduction;
+                }
+            }
+        }
+
+        function applySharpen(imageData, amount) {
+            const { data, width, height } = imageData;
+            const output = new Uint8ClampedArray(data);
+            for (let y = 1; y < height - 1; y++) {
+                for (let x = 1; x < width - 1; x++) {
+                    for (let c = 0; c < 3; c++) {
+                        const i = (y * width + x) * 4 + c;
+                        const center = data[i];
+                        const neighbors = 
+                            data[((y-1) * width + x) * 4 + c] +
+                            data[((y+1) * width + x) * 4 + c] +
+                            data[(y * width + (x-1)) * 4 + c] +
+                            data[(y * width + (x+1)) * 4 + c];
+                        const sharpened = center * 5 - neighbors;
+                        output[i] = Math.max(0, Math.min(255, center + (sharpened - center) * amount));
+                    }
+                }
+            }
+            data.set(output);
+        }
+
+        function applyContrast(imageData, contrast) {
+            const data = imageData.data;
+            for (let i = 0; i < data.length; i += 4) {
+                data[i]     = Math.max(0, Math.min(255, (data[i] - 128) * contrast + 128));
+                data[i + 1] = Math.max(0, Math.min(255, (data[i+1] - 128) * contrast + 128));
+                data[i + 2] = Math.max(0, Math.min(255, (data[i+2] - 128) * contrast + 128));
+            }
+        }
+
+        let filterTimeout;
+        const debouncedProcess = () => {
+            clearTimeout(filterTimeout);
+            filterTimeout = setTimeout(processImage, 50);
+        };
+
+        [sharpRange, contrastRange, glareRange].forEach(r => r.addEventListener('input', debouncedProcess));
+
+        document.getElementById('download-btn').addEventListener('click', () => {
+            const link = document.createElement('a');
+            link.download = `rectified_${Date.now()}.png`;
+            link.href = destCanvas.toDataURL('image/png');
+            link.click();
+        });
+
+        document.getElementById('new-upload-btn').addEventListener('click', () => location.reload());
+    </script>
+</body>
+</html>
