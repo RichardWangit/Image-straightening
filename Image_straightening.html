@@ -69,6 +69,10 @@
             box-shadow: 0 2px 4px rgba(0,0,0,0.2);
             pointer-events: none;
         }
+        .handle {
+            /* 觸控放開時，圓圈從上移位置平滑回彈至實際座標 */
+            transition: border-color 0.2s, top 0.15s ease-out, left 0.15s ease-out;
+        }
         .handle:hover {
             border-color: #1d4ed8;
             background-color: rgba(59, 130, 246, 0.2);

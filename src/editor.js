@@ -58,8 +58,12 @@ let originalImg      = new Image();
 let points           = [];
 let scale            = 1;
 let isDragging       = false;
+let isTouchDragging  = false; // 區分觸控與滑鼠拖曳，用於計算視覺偏移
 let activeHandle     = null;
 let rawRectifiedData = null;
+
+/** 觸控拖曳時控制點視覺上移的距離（px），避免手指遮擋十字中心。 */
+const TOUCH_OFFSET = 48;
 
 // ---------------------------------------------------------------------------
 // DOM 參考（在應用程式初始化時設定）
@@ -130,7 +134,11 @@ export function updateCanvas() {
 
     points.forEach((p, i) => {
         dom.handles[i].style.left = `${p.x}px`;
-        dom.handles[i].style.top  = `${p.y}px`;
+        // 觸控拖曳時，將作用中的控制點視覺上移，讓十字中心顯示在手指上方
+        const visualY = (isTouchDragging && activeHandle === i)
+            ? p.y - TOUCH_OFFSET
+            : p.y;
+        dom.handles[i].style.top = `${visualY}px`;
     });
 }
 
@@ -239,6 +247,13 @@ export function initApp() {
             e.preventDefault();
             isDragging   = true;
             activeHandle = index;
+
+            if (e.touches) {
+                // 觸控模式：關閉該控制點的過渡動畫，確保拖曳時即時跟隨手指
+                isTouchDragging = true;
+                dom.handles[index].style.transition = 'border-color 0.2s';
+            }
+
             window.addEventListener('mousemove', move);
             window.addEventListener('mouseup',   onEnd);
             window.addEventListener('touchmove', move,  { passive: false });
@@ -249,8 +264,18 @@ export function initApp() {
     });
 
     function onEnd() {
-        isDragging   = false;
-        activeHandle = null;
+        const releasedHandle = activeHandle;
+
+        isDragging      = false;
+        isTouchDragging = false;
+        activeHandle    = null;
+
+        // 恢復控制點的過渡動畫，使其平滑回彈至實際座標位置
+        if (releasedHandle !== null) {
+            dom.handles[releasedHandle].style.transition = '';
+        }
+        updateCanvas(); // 以實際座標重繪，觸發回彈動畫
+
         window.removeEventListener('mousemove', move);
         window.removeEventListener('mouseup',   onEnd);
         window.removeEventListener('touchmove', move);
