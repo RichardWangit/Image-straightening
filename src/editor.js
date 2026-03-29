@@ -248,10 +248,11 @@ export function initApp() {
             isDragging   = true;
             activeHandle = index;
 
+            // 拖曳期間關閉 top/left 過渡動畫，確保圓圈即時跟隨（觸控與滑鼠皆適用）
+            dom.handles[index].style.transition = 'border-color 0.2s';
+
             if (e.touches) {
-                // 觸控模式：關閉該控制點的過渡動畫，確保拖曳時即時跟隨手指
                 isTouchDragging = true;
-                dom.handles[index].style.transition = 'border-color 0.2s';
             }
 
             window.addEventListener('mousemove', move);
@@ -266,15 +267,23 @@ export function initApp() {
     function onEnd() {
         const releasedHandle = activeHandle;
 
+        if (isTouchDragging && releasedHandle !== null) {
+            // 觸控結束：將座標更新至圓圈中心座標（即手指上方 TOUCH_OFFSET 處）
+            // 圓圈視覺位置不變，實際座標「彈至」圓圈所在位置
+            points[releasedHandle] = {
+                x: points[releasedHandle].x,
+                y: clampToCanvas(points[releasedHandle].y - TOUCH_OFFSET, dom.sourceCanvas.height),
+            };
+        }
+
         isDragging      = false;
         isTouchDragging = false;
         activeHandle    = null;
 
-        // 恢復控制點的過渡動畫，使其平滑回彈至實際座標位置
         if (releasedHandle !== null) {
             dom.handles[releasedHandle].style.transition = '';
         }
-        updateCanvas(); // 以實際座標重繪，觸發回彈動畫
+        updateCanvas(); // 以更新後座標重繪；觸控時圓圈位置不變，滑鼠時同樣不移動
 
         window.removeEventListener('mousemove', move);
         window.removeEventListener('mouseup',   onEnd);
