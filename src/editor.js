@@ -57,20 +57,19 @@ export function isImageFile(file) {
 let originalImg      = new Image();
 let points           = [];
 let scale            = 1;
-let isDragging       = false;
-let isTouchDragging  = false; // 區分觸控與滑鼠拖曳，用於計算視覺偏移
-let activeHandle     = null;
+let isDragging   = false;
+let activeHandle = null;
 let rawRectifiedData = null;
 
-/** 觸控拖曳時控制點視覺偏移的距離（px），避免手指遮擋十字中心。 */
-const TOUCH_OFFSET = 48;
+/** 拖曳時控制點視覺偏移的距離（px），避免游標／手指遮擋十字中心。 */
+const DRAG_OFFSET = 48;
 
 /**
- * 依控制點索引決定觸控偏移方向：
+ * 依控制點索引決定拖曳偏移方向：
  * 1、2 號（索引 0、1，上方角落）→ 向上偏移（-1）
  * 3、4 號（索引 2、3，下方角落）→ 向下偏移（+1）
  */
-function touchOffsetSign(index) {
+function dragOffsetSign(index) {
     return index <= 1 ? -1 : 1;
 }
 
@@ -143,10 +142,10 @@ export function updateCanvas() {
 
     points.forEach((p, i) => {
         dom.handles[i].style.left = `${p.x}px`;
-        // 觸控拖曳時，依角落位置決定偏移方向：
+        // 拖曳時（觸控或滑鼠皆適用），依角落位置決定偏移方向：
         // 上方角落（1、2）往上偏移，下方角落（3、4）往下偏移
-        const visualY = (isTouchDragging && activeHandle === i)
-            ? p.y + touchOffsetSign(i) * TOUCH_OFFSET
+        const visualY = (isDragging && activeHandle === i)
+            ? p.y + dragOffsetSign(i) * DRAG_OFFSET
             : p.y;
         dom.handles[i].style.top = `${visualY}px`;
     });
@@ -261,10 +260,6 @@ export function initApp() {
             // 拖曳期間關閉 top/left 過渡動畫，確保圓圈即時跟隨（觸控與滑鼠皆適用）
             dom.handles[index].style.transition = 'border-color 0.2s';
 
-            if (e.touches) {
-                isTouchDragging = true;
-            }
-
             window.addEventListener('mousemove', move);
             window.addEventListener('mouseup',   onEnd);
             window.addEventListener('touchmove', move,  { passive: false });
@@ -277,21 +272,20 @@ export function initApp() {
     function onEnd() {
         const releasedHandle = activeHandle;
 
-        if (isTouchDragging && releasedHandle !== null) {
-            // 觸控結束：將座標更新至圓圈中心座標
-            // 上方角落偏移量為負（圓圈在手指上方），下方角落為正（圓圈在手指下方）
+        if (releasedHandle !== null) {
+            // 拖曳結束（觸控或滑鼠皆適用）：將座標更新至圓圈中心座標
+            // 上方角落偏移量為負（圓圈在游標上方），下方角落為正（圓圈在游標下方）
             points[releasedHandle] = {
                 x: points[releasedHandle].x,
                 y: clampToCanvas(
-                    points[releasedHandle].y + touchOffsetSign(releasedHandle) * TOUCH_OFFSET,
+                    points[releasedHandle].y + dragOffsetSign(releasedHandle) * DRAG_OFFSET,
                     dom.sourceCanvas.height,
                 ),
             };
         }
 
-        isDragging      = false;
-        isTouchDragging = false;
-        activeHandle    = null;
+        isDragging   = false;
+        activeHandle = null;
 
         if (releasedHandle !== null) {
             dom.handles[releasedHandle].style.transition = '';
