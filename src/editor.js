@@ -47,7 +47,7 @@ export function clampToCanvas(value, max) {
  * @returns {boolean}
  */
 export function isImageFile(file) {
-    return !!(file && file.type.startsWith('image/'));
+    return !!(file && typeof file.type === 'string' && file.type.startsWith('image/'));
 }
 
 // ---------------------------------------------------------------------------
@@ -97,6 +97,12 @@ export function showMessage(text) {
  * 初始化（或重置）編輯器：設定畫布尺寸與預設控制點。
  */
 export function initEditor() {
+    // 若影像還未正確載入（寬或高為 0）則停止初始化，避免除以 0 或產生 Infinity
+    if (!originalImg || !originalImg.width || !originalImg.height) {
+        showMessage('無效影像');
+        return;
+    }
+
     dom.editorSection.classList.remove('hidden');
     dom.uploadSection.classList.add('hidden');
     dom.enhancementPanel.classList.add('hidden');
@@ -141,13 +147,15 @@ export function updateCanvas() {
     sCtx.fill();
 
     points.forEach((p, i) => {
-        dom.handles[i].style.left = `${p.x}px`;
+        const handle = dom.handles[i];
+        if (!handle) return;
+        handle.style.left = `${p.x}px`;
         // 拖曳時（觸控或滑鼠皆適用），依角落位置決定偏移方向：
         // 上方角落（1、2）往上偏移，下方角落（3、4）往下偏移
         const visualY = (isDragging && activeHandle === i)
             ? p.y + dragOffsetSign(i) * DRAG_OFFSET
             : p.y;
-        dom.handles[i].style.top = `${visualY}px`;
+        handle.style.top = `${visualY}px`;
     });
 }
 
@@ -198,6 +206,14 @@ export function processImage() {
     dom.destCanvas.getContext('2d').putImageData(enhanced, 0, 0);
 }
 
+/**
+ * 測試/工具用：設定內部的 originalImg 物件（供測試注入使用）
+ * @param {{width:number,height:number,src?:string}} img
+ */
+export function setOriginalImage(img) {
+    originalImg = img;
+}
+
 // ---------------------------------------------------------------------------
 // 應用程式初始化（設定 DOM 參考與事件監聽器）
 // ---------------------------------------------------------------------------
@@ -233,7 +249,7 @@ export function initApp() {
     };
 
     // 拖放上傳
-    dom.fileInput.addEventListener('change', handleFileSelect);
+    if (dom.fileInput) dom.fileInput.addEventListener('change', handleFileSelect);
 
     ['dragover', 'dragleave', 'drop'].forEach(evt => {
         document.body.addEventListener(evt, (e) => {
@@ -250,15 +266,16 @@ export function initApp() {
         });
     });
 
-    // 控制點拖曳
+    // 控制點拖曳（若某些 handle 缺失則跳過）
     dom.handles.forEach((handle, index) => {
+        if (!handle) return;
         const onStart = (e) => {
             e.preventDefault();
             isDragging   = true;
             activeHandle = index;
 
             // 拖曳期間關閉 top/left 過渡動畫，確保圓圈即時跟隨（觸控與滑鼠皆適用）
-            dom.handles[index].style.transition = 'border-color 0.2s';
+            handle.style.transition = 'border-color 0.2s';
 
             window.addEventListener('mousemove', move);
             window.addEventListener('mouseup',   onEnd);
@@ -287,7 +304,7 @@ export function initApp() {
         isDragging   = false;
         activeHandle = null;
 
-        if (releasedHandle !== null) {
+        if (releasedHandle !== null && dom.handles[releasedHandle]) {
             dom.handles[releasedHandle].style.transition = '';
         }
         updateCanvas(); // 以更新後座標重繪；觸控時圓圈位置不變，滑鼠時同樣不移動

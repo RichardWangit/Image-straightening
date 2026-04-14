@@ -147,6 +147,14 @@ describe('isImageFile', () => {
     test('空字串 type 回傳 false', () => {
         expect(isImageFile(mockFile(''))).toBe(false);
     });
+
+    test('空物件回傳 false（無 type）', () => {
+        expect(isImageFile({})).toBe(false);
+    });
+
+    test('type 為 undefined 回傳 false', () => {
+        expect(isImageFile({ type: undefined })).toBe(false);
+    });
 });
 
 // ---------------------------------------------------------------------------
@@ -219,6 +227,25 @@ describe('processImage（rawRectifiedData 為 null 時）', () => {
         // 動態匯入後 rawRectifiedData 初始為 null
         const mod = await import('../src/editor.js?init=' + Date.now());
         expect(() => mod.processImage()).not.toThrow();
+    });
+});
+
+describe('initEditor 處理零尺寸影像', () => {
+    beforeEach(() => {
+        vi.resetModules();
+        buildDOM();
+    });
+
+    test('originalImg 寬或高為 0 時不會進入編輯器（顯示上傳區）', async () => {
+        const mod = await import('../src/editor.js?test=' + Date.now());
+        // 先初始化 DOM 參考
+        mod.initApp();
+        // 注入一個寬高為 0 的影像物件
+        mod.setOriginalImage({ width: 0, height: 0 });
+        // 呼叫 initEditor，應該早退並保留 upload section
+        mod.initEditor();
+        const editorSection = document.getElementById('editor-section');
+        expect(editorSection.classList.contains('hidden')).toBe(true);
     });
 });
 
